@@ -1,0 +1,24 @@
+# %% [markdown]
+# ### data ingestion
+
+# %%
+from langchain_core.documents import Document
+
+
+# %%
+from langchain_community.document_loaders import DirectoryLoader
+from langchain_community.document_loaders import PyPDFLoader , PyMuPDFLoader
+
+dir_loader=DirectoryLoader(
+    "../data/pdf",
+    glob="**/*.pdf",##pattern to match all pdf files in the directory and subdirectories
+    loader_cls=PyMuPDFLoader,##loader class to use for loading the pdf files
+    show_progress=False
+)
+pdf_documents=dir_loader.load()
+pdf_documents
+
+
+
+
+
