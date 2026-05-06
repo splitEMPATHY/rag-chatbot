@@ -5,7 +5,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_openai import ChatOpenAI
+from langchain_community.llms import Ollama
 
 st.set_page_config(page_title="RAG Fix", layout="wide")
 st.title("🚀 Mark Zuckerberg Doc Search")
@@ -66,10 +66,10 @@ if os.path.exists(INDEX_PATH):
             Question: {query}
             """
 
-            llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+            llm = Ollama(model="llama3")
             response = llm.invoke(prompt)
 
             st.write("### Answer:")
-            st.write(response.content)
+            st.write(response)
         else:
             st.info("Please click 'Rebuild Index' in the sidebar.")
