@@ -5,6 +5,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_openai import ChatOpenAI
 
 st.set_page_config(page_title="RAG Fix", layout="wide")
 st.title("🚀 Mark Zuckerberg Doc Search")
@@ -51,9 +52,24 @@ if os.path.exists(INDEX_PATH):
     query = st.text_input("Ask a question:")
     if query:
         # Retrieve results[cite: 1]
-        results = vectorstore.similarity_search(query, k=3)
-        for res in results:
-            with st.expander(f"Found in {res.metadata.get('source', 'Document')}"):
-                st.write(res.page_content)
-else:
-    st.info("Please click 'Rebuild Index' in the sidebar.")
+        if query:
+
+            docs = vectorstore.similarity_search(query, k=3)
+
+            context = "\n\n".join([doc.page_content for doc in docs])
+
+            prompt = f"""
+            Answer the question using only the context below:
+
+            {context}
+
+            Question: {query}
+            """
+
+            llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+            response = llm.invoke(prompt)
+
+            st.write("### Answer:")
+            st.write(response.content)
+        else:
+            st.info("Please click 'Rebuild Index' in the sidebar.")
