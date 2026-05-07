@@ -1,3 +1,4 @@
+import tempfile
 import streamlit as st
 import os
 from pathlib import Path
@@ -8,10 +9,13 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama
 
 st.set_page_config(page_title="RAG-chatbot", layout="wide")
-st.title("Mark Zuckerberg Doc Search")
+st.title("chat with your PDFs")
+uploaded_file = st.file_uploader(
+    "Upload a PDF",
+    type=["pdf"]
+)
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(current_dir, "data", "pdf")
 INDEX_PATH = os.path.join(current_dir, "faiss_index")
 
 @st.cache_resource
@@ -22,22 +26,37 @@ def load_resources():
 embeddings = load_resources()
 
 with st.sidebar:
-    if st.button("Rebuild Index"):
-        all_docs = []
-        if os.path.exists(DATA_PATH):
-            pdf_files = [f for f in os.listdir(DATA_PATH) if f.endswith('.pdf')]
-            for pdf in pdf_files:
-                loader = PyPDFLoader(os.path.join(DATA_PATH, pdf))
-                all_docs.extend(loader.load())
-            
-            splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
-            chunks = splitter.split_documents(all_docs)
-            
-            vectorstore = FAISS.from_documents(chunks, embeddings)
+
+    if uploaded_file is not None:
+
+        if st.button("Create Index"):
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_file.read())
+                temp_path = tmp_file.name
+
+            loader = PyPDFLoader(temp_path)
+
+            documents = loader.load()
+
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=600,
+                chunk_overlap=100
+            )
+
+            chunks = splitter.split_documents(documents)
+
+            vectorstore = FAISS.from_documents(
+                chunks,
+                embeddings
+            )
+
             vectorstore.save_local(INDEX_PATH)
-            st.success("Index Updated!")
-        else:
-            st.error(f"Path not found: {DATA_PATH}")
+
+            st.success("Index Created!")
+
+            os.remove(temp_path)
+
 
 if os.path.exists(INDEX_PATH):
     
@@ -58,7 +77,7 @@ if os.path.exists(INDEX_PATH):
         Question: {query}
         """
 
-        llm = Ollama(model="llama3")
+        llm = Ollama(model="llama3:8b-instruct-q4_K_M")
         response = llm.invoke(prompt)
 
         st.write("### Answer:")
