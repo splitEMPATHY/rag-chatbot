@@ -77,7 +77,7 @@ if os.path.exists(INDEX_PATH):
         Question: {query}
         """
 
-        llm = Ollama(model="llama3:8b-instruct-q4_K_M")
+        llm = Ollama(model="phi3:mini")
         response = llm.invoke(prompt)
 
         st.write("### Answer:")
