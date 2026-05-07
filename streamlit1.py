@@ -9,7 +9,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama
 
 st.set_page_config(page_title="RAG-chatbot", layout="wide")
-st.title("chat with your PDFs")
+st.title("CHAT WITH YOUR PDF")
 uploaded_file = st.file_uploader(
     "Upload a PDF",
     type=["pdf"]
