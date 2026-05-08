@@ -20,13 +20,40 @@ from langchain_community.llms import Ollama
 
 st.set_page_config(page_title="RAG-chatbot", layout="wide")
 st.title("CHAT WITH YOUR FILE")
-uploaded_file = st.file_uploader(
+uploaded_file = st.sidebar.file_uploader(
     "Upload a file",
-    type=["pdf", "docx", "csv"]
+    type=["pdf", "docx", "csv"],
+    key="uploader"
 )
+
+if "last_file" not in st.session_state:
+    st.session_state.last_file = None
+
+if "token_limit" not in st.session_state:
+    st.session_state.token_limit = 500
+
+current_file = uploaded_file.name if uploaded_file else None
+
+if current_file != st.session_state.last_file:
+    st.session_state.token_limit = 500   # reset value
+    st.session_state.last_file = current_file
+
+token_limit = st.sidebar.number_input(
+    "Enter Output Token Limit",
+    min_value=100,
+    max_value=10000,
+    value=st.session_state.token_limit,
+    step=100
+)
+
+st.session_state.token_limit = token_limit
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 INDEX_PATH = os.path.join(current_dir, "faiss_index")
+DATA_PATH = os.path.join(current_dir, "data")
+
+os.makedirs(DATA_PATH, exist_ok=True)
+
 
 @st.cache_resource
 def load_resources():
@@ -35,129 +62,184 @@ def load_resources():
 
 embeddings = load_resources()
 
+# initialize session state
+if "last_uploaded" not in st.session_state:
+    st.session_state.last_uploaded = None
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+# auto delete when uploader cleared
+if uploaded_file is None and st.session_state.last_uploaded:
+
+    old_path = os.path.join(
+        DATA_PATH,
+        st.session_state.last_uploaded
+    )
+
+    if os.path.exists(old_path):
+        os.remove(old_path)
+
+    if os.path.exists(INDEX_PATH):
+
+        import shutil
+        shutil.rmtree(INDEX_PATH)
+
+    st.session_state.last_uploaded = None
+
+
 with st.sidebar:
 
     if uploaded_file is not None:
 
-        if st.button("Create Index"):
+        file_path = os.path.join(
+            DATA_PATH,
+            uploaded_file.name
+        )
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                temp_path = tmp_file.name
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+        temp_path = file_path
 
-            # PDF
-            if file_extension == ".pdf":
+        st.session_state.last_uploaded = uploaded_file.name
 
-                text = ""
+        file_extension = os.path.splitext(
+            uploaded_file.name
+        )[1].lower()
 
-                loader = PyPDFLoader(temp_path)
-                pdf_docs = loader.load()
+        # PDF
+        if file_extension == ".pdf":
 
-                for doc in pdf_docs:
-                    text += doc.page_content + "\n"
+            text = ""
 
-                # Extract tables separately
-                with pdfplumber.open(temp_path) as pdf:
+            loader = PyPDFLoader(temp_path)
 
-                    for page in pdf.pages:
+            pdf_docs = loader.load()
 
-                        tables = page.extract_tables()
+            for doc in pdf_docs:
+                text += doc.page_content + "\n"
 
-                        for table in tables:
+            with pdfplumber.open(temp_path) as pdf:
 
-                            for row in table:
+                for page in pdf.pages:
 
-                                cleaned_row = [
-                                    str(cell) if cell else ""
-                                    for cell in row
-                                ]
+                    tables = page.extract_tables()
 
-                                text += " | ".join(cleaned_row) + "\n"
+                    for table in tables:
 
-                documents = [Document(page_content=text)]
+                        for row in table:
 
-            # DOCX
-            elif file_extension == ".docx":
+                            cleaned_row = [
+                                str(cell) if cell else ""
+                                for cell in row
+                            ]
 
-                doc = DocxDocument(temp_path)
+                            text += " | ".join(cleaned_row) + "\n"
 
-                text = ""
+            documents = [Document(page_content=text)]
 
-                # Normal paragraphs
-                for para in doc.paragraphs:
-                    text += para.text + "\n"
+        # DOCX
+        elif file_extension == ".docx":
 
-                # Tables
-                for table in doc.tables:
+            doc = DocxDocument(temp_path)
 
-                    for row in table.rows:
+            text = ""
 
-                        row_text = [
-                            cell.text for cell in row.cells
-                        ]
+            for para in doc.paragraphs:
+                text += para.text + "\n"
 
-                        text += " | ".join(row_text) + "\n"
+            for table in doc.tables:
 
-                documents = [Document(page_content=text)]
+                for row in table.rows:
 
-            # CSV
-            elif file_extension == ".csv":
+                    row_text = [
+                        cell.text for cell in row.cells
+                    ]
 
-                df = pd.read_csv(temp_path)
+                    text += " | ".join(row_text) + "\n"
 
-                text = df.to_string(index=False)
+            documents = [Document(page_content=text)]
 
-                documents = [Document(page_content=text)]
+        # CSV
+        elif file_extension == ".csv":
 
-            else:
+            df = pd.read_csv(temp_path)
 
-                st.error("Unsupported file type")
-                st.stop()
+            text = df.to_string(index=False)
 
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=600,
-                chunk_overlap=100
-            )
+            documents = [Document(page_content=text)]
 
-            chunks = splitter.split_documents(documents)
+        else:
 
-            vectorstore = FAISS.from_documents(
-                chunks,
-                embeddings
-            )
+            st.error("Unsupported file type")
+            st.stop()
 
-            vectorstore.save_local(INDEX_PATH)
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=600,
+            chunk_overlap=100
+        )
 
-            st.success("Index Created!")
+        chunks = splitter.split_documents(documents)
 
-            os.remove(temp_path)
+        vectorstore = FAISS.from_documents(
+            chunks,
+            embeddings
+        )
+
+        vectorstore.save_local(INDEX_PATH)
+
+        st.success("Index Created!")
 
 
 if os.path.exists(INDEX_PATH):
     
     vectorstore = FAISS.load_local(INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
+    for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
     
-    query = st.text_input("Ask a question:")
+    query = st.chat_input("Ask a question...")
+
     if query:
-        
+
+        # show user message (RIGHT side)
+        st.chat_message("user").markdown(query)
+        st.session_state.messages.append({"role": "user", "content": query})
+
         docs = vectorstore.similarity_search(query, k=6)
 
         context = "\n\n".join([doc.page_content for doc in docs])
 
         prompt = f"""
-        Answer the question using only the context below:
+        You are a strict question-answering system.
 
+        RULES:
+        - Use ONLY the information provided in the context.
+        - Do NOT use any outside knowledge.
+        - If the answer is not clearly present in the context, say: "I don't know based on the provided data."
+
+        Context:
         {context}
 
-        Question: {query}
+        Question:
+        {query}
+
+        Answer:
         """
 
-        llm = Ollama(model="phi3:mini")
-        response = llm.invoke(prompt)
+        llm = Ollama(model="phi3:mini", num_predict=token_limit)
 
-        st.write("### Answer:")
-        st.write(response)
+        response_box = st.chat_message("assistant")
+        placeholder = response_box.empty()
+
+        full_response = ""
+
+        for chunk in llm.stream(prompt):
+            full_response += chunk
+            placeholder.markdown(full_response)
+
+        st.session_state.messages.append(
+            {"role": "assistant", "content": full_response}
+        )
 else:
-    st.info("Please click 'Rebuild Index' in the sidebar.")
+    st.info("upload a file to begin.")
